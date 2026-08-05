@@ -6,6 +6,25 @@ const KIS_BASE_URL = 'https://openapi.koreainvestment.com:9443';
 
 type MarketTab = 'KOSPI' | 'KOSDAQ';
 
+interface TradingData {
+  indexCode: string;
+  accumulatedAmount: number;
+  yesterdaySameTimeAmount: number;
+}
+
+interface DebugInfo {
+  requestParams?: Record<string, string>;
+  rtCd?: string;
+  msgCd?: string;
+  msg1?: string;
+  outputKeys?: string[];
+  outputSample?: unknown;
+  output2Length?: number;
+  output2Sample?: unknown;
+  selectedRawAmount?: string;
+  error?: string;
+}
+
 const INDEX_CODES: Record<MarketTab, string> = {
   KOSPI: '0001',
   KOSDAQ: '1001',
@@ -13,32 +32,63 @@ const INDEX_CODES: Record<MarketTab, string> = {
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
 
-function isMarketTab(value: unknown): value is MarketTab {
-  return value === 'KOSPI' || value === 'KOSDAQ';
+function getKstNow(): Date {
+  return new Date(Date.now() + 9 * 60 * 60 * 1000);
 }
 
-function getYesterdayDateString(): string {
-  const date = new Date();
-  date.setDate(date.getDate() - 1);
-
-  while (date.getDay() === 0 || date.getDay() === 6) {
-    date.setDate(date.getDate() - 1);
-  }
-
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
+function formatKstDate(date: Date): string {
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(date.getUTCDate()).padStart(2, '0');
 
   return `${y}${m}${d}`;
 }
 
+function formatKstTime(date: Date): string {
+  const h = String(date.getUTCHours()).padStart(2, '0');
+  const m = String(date.getUTCMinutes()).padStart(2, '0');
+  const s = String(date.getUTCSeconds()).padStart(2, '0');
+
+  return `${h}${m}${s}`;
+}
+
+function getPreviousKstBusinessDateString(): string {
+  const date = getKstNow();
+  date.setUTCDate(date.getUTCDate() - 1);
+
+  while (date.getUTCDay() === 0 || date.getUTCDay() === 6) {
+    date.setUTCDate(date.getUTCDate() - 1);
+  }
+
+  return formatKstDate(date);
+}
+
 function parseKisAmountIn100Million(value: string | undefined): number | null {
-  const amount = Number(value);
-  const amountIn100Million = amount / 100;
+  const rawAmount = Number(value);
+  const amountIn100Million = rawAmount / 100;
 
   return Number.isFinite(amountIn100Million) && amountIn100Million > 0
     ? amountIn100Million
     : null;
+}
+
+function pickLargestValidAmountRow<T extends { acml_tr_pbmn?: string }>(
+  rows: T[] | undefined,
+): { row: T; amount: number } | null {
+  if (!rows?.length) return null;
+
+  let selected: { row: T; amount: number } | null = null;
+
+  for (const row of rows) {
+    const amount = parseKisAmountIn100Million(row.acml_tr_pbmn);
+    if (amount === null) continue;
+
+    if (!selected || amount > selected.amount) {
+      selected = { row, amount };
+    }
+  }
+
+  return selected;
 }
 
 async function getAccessToken(): Promise<string> {
@@ -64,7 +114,7 @@ async function getAccessToken(): Promise<string> {
   });
 
   if (!res.ok) {
-    throw new Error('KIS token request failed');
+    throw new Error(`KIS token request failed: ${res.status}`);
   }
 
   const data = (await res.json()) as {
@@ -95,43 +145,64 @@ function kisHeaders(token: string, trId: string) {
   };
 }
 
-async function fetchIndexPrice(tab: MarketTab): Promise<number> {
+async function fetchIndexPrice(
+  tab: MarketTab,
+): Promise<{ amount: number; debug: DebugInfo }> {
   const token = await getAccessToken();
   const params = new URLSearchParams({
     FID_COND_MRKT_DIV_CODE: 'U',
     FID_INPUT_ISCD: INDEX_CODES[tab],
   });
 
+  const requestParams = Object.fromEntries(params.entries());
+
   const res = await fetch(
     `${KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-index-price?${params.toString()}`,
-    { headers: kisHeaders(token, 'FHPUP02100000') },
+    {
+      headers: kisHeaders(token, 'FHPUP02100000'),
+      cache: 'no-store',
+    },
   );
 
   if (!res.ok) {
-    throw new Error('KIS index price request failed');
+    throw new Error(`KIS ${tab} index price request failed: ${res.status}`);
   }
 
   const data = (await res.json()) as {
     rt_cd?: string;
-    output?: { acml_tr_pbmn?: string };
+    msg_cd?: string;
+    msg1?: string;
+    output?: { acml_tr_pbmn?: string; bstp_nmix_prpr?: string };
+  };
+
+  const debug: DebugInfo = {
+    requestParams,
+    rtCd: data.rt_cd,
+    msgCd: data.msg_cd,
+    msg1: data.msg1,
+    outputKeys: data.output ? Object.keys(data.output) : [],
+    outputSample: data.output,
+    selectedRawAmount: data.output?.acml_tr_pbmn,
   };
 
   if (data.rt_cd !== '0') {
-    throw new Error('KIS index price response failed');
+    throw new Error(`KIS ${tab} index price failed: ${data.msg1 ?? 'unknown'}`);
   }
 
   const amount = parseKisAmountIn100Million(data.output?.acml_tr_pbmn);
 
   if (amount === null) {
-    throw new Error('KIS index trading amount is empty');
+    throw new Error(`KIS ${tab} index trading amount is empty`);
   }
 
-  return amount;
+  return { amount, debug };
 }
 
 async function fetchYesterdaySameTimeAmount(
   tab: MarketTab,
-): Promise<number | null> {
+): Promise<{ amount: number | null; debug: DebugInfo }> {
+  const debug: DebugInfo = {};
+
   try {
     const token = await getAccessToken();
     const params = new URLSearchParams({
@@ -142,33 +213,56 @@ async function fetchYesterdaySameTimeAmount(
       FID_PW_DATA_INCU_YN: 'Y',
     });
 
+    debug.requestParams = Object.fromEntries(params.entries());
+
     const res = await fetch(
       `${KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-time-indexchartprice?${params.toString()}`,
-      { headers: kisHeaders(token, 'FHKUP03500200') },
+      {
+        headers: kisHeaders(token, 'FHKUP03500200'),
+        cache: 'no-store',
+      },
     );
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      debug.error = `HTTP ${res.status}`;
+      return { amount: null, debug };
+    }
 
     const data = (await res.json()) as {
       rt_cd?: string;
-      output2?: Array<{ acml_tr_pbmn?: string }>;
+      msg_cd?: string;
+      msg1?: string;
+      output2?: Array<{ acml_tr_pbmn?: string; stck_bsop_date?: string; stck_cntg_hour?: string }>;
     };
 
-    if (data.rt_cd !== '0' || !data.output2?.length) return null;
+    debug.rtCd = data.rt_cd;
+    debug.msgCd = data.msg_cd;
+    debug.msg1 = data.msg1;
+    debug.output2Length = data.output2?.length ?? 0;
+    debug.output2Sample = data.output2?.slice(0, 3);
 
-    const last = data.output2[data.output2.length - 1];
-    return parseKisAmountIn100Million(last.acml_tr_pbmn);
-  } catch {
-    return null;
+    if (data.rt_cd !== '0' || !data.output2?.length) {
+      return { amount: null, debug };
+    }
+
+    const selected = pickLargestValidAmountRow(data.output2);
+    debug.selectedRawAmount = selected?.row.acml_tr_pbmn;
+
+    return { amount: selected?.amount ?? null, debug };
+  } catch (error) {
+    debug.error = error instanceof Error ? error.message : 'unknown error';
+    return { amount: null, debug };
   }
 }
 
 async function fetchYesterdayClosingAmount(
   tab: MarketTab,
-): Promise<number | null> {
+): Promise<{ amount: number | null; debug: DebugInfo }> {
+  const debug: DebugInfo = {};
+
   try {
     const token = await getAccessToken();
-    const yesterday = getYesterdayDateString();
+    const yesterday = getPreviousKstBusinessDateString();
 
     const params = new URLSearchParams({
       FID_COND_MRKT_DIV_CODE: 'U',
@@ -178,51 +272,111 @@ async function fetchYesterdayClosingAmount(
       FID_PERIOD_DIV_CODE: 'D',
     });
 
+    debug.requestParams = Object.fromEntries(params.entries());
+
     const res = await fetch(
       `${KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice?${params.toString()}`,
-      { headers: kisHeaders(token, 'FHKUP03500100') },
+      {
+        headers: kisHeaders(token, 'FHKUP03500100'),
+        cache: 'no-store',
+      },
     );
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      debug.error = `HTTP ${res.status}`;
+      return { amount: null, debug };
+    }
 
     const data = (await res.json()) as {
       rt_cd?: string;
-      output2?: Array<{ acml_tr_pbmn?: string }>;
+      msg_cd?: string;
+      msg1?: string;
+      output2?: Array<{ acml_tr_pbmn?: string; stck_bsop_date?: string }>;
     };
 
-    if (data.rt_cd !== '0' || !data.output2?.length) return null;
+    debug.rtCd = data.rt_cd;
+    debug.msgCd = data.msg_cd;
+    debug.msg1 = data.msg1;
+    debug.output2Length = data.output2?.length ?? 0;
+    debug.output2Sample = data.output2?.slice(0, 3);
 
-    return parseKisAmountIn100Million(data.output2[0].acml_tr_pbmn);
-  } catch {
-    return null;
+    if (data.rt_cd !== '0' || !data.output2?.length) {
+      return { amount: null, debug };
+    }
+
+    const selected = pickLargestValidAmountRow(data.output2);
+    debug.selectedRawAmount = selected?.row.acml_tr_pbmn;
+
+    return { amount: selected?.amount ?? null, debug };
+  } catch (error) {
+    debug.error = error instanceof Error ? error.message : 'unknown error';
+    return { amount: null, debug };
   }
 }
 
+async function fetchMarketTradingData(
+  tab: MarketTab,
+): Promise<{ data: TradingData; debug: Record<string, DebugInfo> }> {
+  const index = await fetchIndexPrice(tab);
+  const sameTime = await fetchYesterdaySameTimeAmount(tab);
+  const closing = sameTime.amount === null ? await fetchYesterdayClosingAmount(tab) : null;
+
+  const yesterdayAmount = sameTime.amount ?? closing?.amount ?? index.amount;
+
+  return {
+    data: {
+      indexCode: INDEX_CODES[tab],
+      accumulatedAmount: index.amount,
+      yesterdaySameTimeAmount: yesterdayAmount,
+    },
+    debug: {
+      index: index.debug,
+      yesterdaySameTime: sameTime.debug,
+      yesterdayClosing: closing?.debug ?? {},
+    },
+  };
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=30');
+  res.setHeader(
+    'Cache-Control',
+    'no-store, no-cache, must-revalidate, proxy-revalidate',
+  );
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+  res.setHeader('CDN-Cache-Control', 'no-store');
+  res.setHeader('Vercel-CDN-Cache-Control', 'no-store');
 
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
 
-  const tab = req.query?.tab ?? 'KOSPI';
-
-  if (!isMarketTab(tab)) {
-    res.status(400).json({ error: 'Invalid market tab' });
-    return;
-  }
+  const debugEnabled = req.query.debug === '1';
 
   try {
-    const todayAmount = await fetchIndexPrice(tab);
-    const yesterdayAmount =
-      (await fetchYesterdaySameTimeAmount(tab)) ??
-      (await fetchYesterdayClosingAmount(tab)) ??
-      todayAmount;
+    const [kospiResult, kosdaqResult] = await Promise.all([
+      fetchMarketTradingData('KOSPI'),
+      fetchMarketTradingData('KOSDAQ'),
+    ]);
 
     res.status(200).json({
-      accumulatedAmount: todayAmount,
-      yesterdaySameTimeAmount: yesterdayAmount,
+      kospi: kospiResult.data,
+      kosdaq: kosdaqResult.data,
+      serverTimeKst: {
+        date: formatKstDate(getKstNow()),
+        time: formatKstTime(getKstNow()),
+      },
+      ...(debugEnabled
+        ? {
+            debug: {
+              userAgent: req.headers['user-agent'] ?? '',
+              kospi: kospiResult.debug,
+              kosdaq: kosdaqResult.debug,
+            },
+          }
+        : {}),
     });
   } catch (error) {
     res.status(500).json({
@@ -230,6 +384,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         error instanceof Error
           ? error.message
           : 'Failed to fetch market trading data',
+      ...(debugEnabled
+        ? {
+            debug: {
+              userAgent: req.headers['user-agent'] ?? '',
+            },
+          }
+        : {}),
     });
   }
 }
