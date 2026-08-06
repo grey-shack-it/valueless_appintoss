@@ -3,7 +3,7 @@ import { defineConfig } from '@apps-in-toss/web-framework/config';
 export default defineConfig({
   appName: 'valueless-kospi',
   brand: {
-    displayName: '찮은형의 국장은 지금',
+    displayName: '하찮은형의 국장은 지금',
     primaryColor: '#3182F6',
     icon: '',
   },
