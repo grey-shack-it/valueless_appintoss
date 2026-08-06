@@ -1,5 +1,5 @@
 {
-  "name": "valueless-appintoss",
+  "name": "valueless-bro",
   "private": true,
   "version": "0.0.1",
   "type": "module",
@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@apps-in-toss/web-framework": "^1.0.0",
+    "@apps-in-toss/web-framework": "^2.10.8",
     "@emotion/react": "^11.14.0",
     "@toss/tds-mobile": "^2.5.1",
     "@toss/tds-mobile-ait": "^2.5.1",
