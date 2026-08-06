@@ -65,29 +65,3 @@ export function getCurrentTimeHHMMSS(): string {
 export function pickRandomMessage(messages: string[]): string {
   return messages[Math.floor(Math.random() * messages.length)];
 }
-
-// iOS 오류 해결?
-
-function createSafeDate(value?: string | number | Date): Date {
-  if (value instanceof Date) return value;
-  if (typeof value === 'number') return new Date(value);
-  if (!value) return new Date();
-
-  const normalized = value.trim().replace(/[.-]/g, '/');
-  const match = normalized.match(
-    /^(\d{4})\/(\d{1,2})\/(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/,
-  );
-
-  if (!match) return new Date(normalized);
-
-  const [, year, month, day, hour = '0', minute = '0', second = '0'] = match;
-
-  return new Date(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute),
-    Number(second),
-  );
-}
