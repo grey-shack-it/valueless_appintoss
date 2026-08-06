@@ -171,54 +171,42 @@ function kisHeaders(token: string, trId: string) {
 
 async function fetchIndexPrice(
   tab: MarketTab,
-): Promise<{ amount: number; debug: DebugInfo }> {
+): Promise<{ amount: number | null; debug: DebugInfo }> {
+  const debug: DebugInfo = {};
   const token = await getAccessToken();
   const params = new URLSearchParams({
     FID_COND_MRKT_DIV_CODE: 'U',
     FID_INPUT_ISCD: INDEX_CODES[tab],
   });
-
-  const requestParams = Object.fromEntries(params.entries());
+  debug.requestParams = Object.fromEntries(params.entries());
 
   const res = await fetch(
     `${KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-index-price?${params.toString()}`,
-    {
-      headers: kisHeaders(token, 'FHPUP02100000'),
-      cache: 'no-store',
-    },
+    { headers: kisHeaders(token, 'FHPUP02100000'), cache: 'no-store' },
   );
 
   if (!res.ok) {
-    throw new Error(`KIS ${tab} index price request failed: ${res.status}`);
+    debug.error = `HTTP ${res.status}`;
+    return { amount: null, debug };
   }
 
   const data = (await res.json()) as {
-    rt_cd?: string;
-    msg_cd?: string;
-    msg1?: string;
+    rt_cd?: string; msg_cd?: string; msg1?: string;
     output?: { acml_tr_pbmn?: string; bstp_nmix_prpr?: string };
   };
 
-  const debug: DebugInfo = {
-    requestParams,
-    rtCd: data.rt_cd,
-    msgCd: data.msg_cd,
-    msg1: data.msg1,
-    outputKeys: data.output ? Object.keys(data.output) : [],
-    outputSample: data.output,
-    selectedRawAmount: data.output?.acml_tr_pbmn,
-  };
+  debug.rtCd = data.rt_cd;
+  debug.msgCd = data.msg_cd;
+  debug.msg1 = data.msg1;
+  debug.outputKeys = data.output ? Object.keys(data.output) : [];
+  debug.outputSample = data.output;
+  debug.selectedRawAmount = data.output?.acml_tr_pbmn;
 
   if (data.rt_cd !== '0') {
-    throw new Error(`KIS ${tab} index price failed: ${data.msg1 ?? 'unknown'}`);
+    return { amount: null, debug };
   }
 
   const amount = parseKisAmountIn100Million(data.output?.acml_tr_pbmn);
-
-  if (amount === null) {
-    throw new Error(`KIS ${tab} index trading amount is empty`);
-  }
-
   return { amount, debug };
 }
 
@@ -340,27 +328,30 @@ async function fetchYesterdayClosingAmount(
 
 async function fetchMarketTradingData(
   tab: MarketTab,
-): Promise<{ data: TradingData; debug: Record<string, DebugInfo> }> {
+): Promise<{ data: TradingData | null; debug: Record<string, DebugInfo>; error?: string }> {
   const index = await fetchIndexPrice(tab);
+
+  if (index.amount === null) {
+    return {
+      data: null,
+      debug: { index: index.debug },
+      error: `${tab} 지수 거래대금을 가져오지 못했습니다.`,
+    };
+  }
+
   const sameTime = await fetchYesterdaySameTimeAmount(tab);
   const closing = sameTime.amount === null ? await fetchYesterdayClosingAmount(tab) : null;
-
   const yesterdayAmount = sameTime.amount ?? closing?.amount;
-if (yesterdayAmount === null || yesterdayAmount === undefined) {
-  throw new Error(`${tab} 전일 거래대금 데이터를 가져올 수 없습니다.`);
-}
+
+  const debug = { index: index.debug, yesterdaySameTime: sameTime.debug, yesterdayClosing: closing?.debug ?? {} };
+
+  if (yesterdayAmount === null || yesterdayAmount === undefined) {
+    return { data: null, debug, error: `${tab} 전일 거래대금 데이터를 가져올 수 없습니다.` };
+  }
 
   return {
-    data: {
-      indexCode: INDEX_CODES[tab],
-      accumulatedAmount: index.amount,
-      yesterdaySameTimeAmount: yesterdayAmount,
-    },
-    debug: {
-      index: index.debug,
-      yesterdaySameTime: sameTime.debug,
-      yesterdayClosing: closing?.debug ?? {},
-    },
+    data: { indexCode: INDEX_CODES[tab], accumulatedAmount: index.amount, yesterdaySameTimeAmount: yesterdayAmount },
+    debug,
   };
 }
 
@@ -391,27 +382,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const [kospiResult, kosdaqResult] = await Promise.all([
-      fetchMarketTradingData('KOSPI'),
-      fetchMarketTradingData('KOSDAQ'),
-    ]);
+  fetchMarketTradingData('KOSPI'),
+  fetchMarketTradingData('KOSDAQ'),
+]);
 
-    res.status(200).json({
-      kospi: kospiResult.data,
-      kosdaq: kosdaqResult.data,
-      serverTimeKst: {
-        date: formatKstDate(getKstNow()),
-        time: formatKstTime(getKstNow()),
-      },
-      ...(debugEnabled
-        ? {
-            debug: {
-              userAgent: req.headers['user-agent'] ?? '',
-              kospi: kospiResult.debug,
-              kosdaq: kosdaqResult.debug,
-            },
-          }
-        : {}),
-    });
+const anyError = kospiResult.error ?? kosdaqResult.error;
+
+res.status(anyError ? 500 : 200).json({
+  ...(kospiResult.data ? { kospi: kospiResult.data } : {}),
+  ...(kosdaqResult.data ? { kosdaq: kosdaqResult.data } : {}),
+  ...(anyError ? { error: anyError } : {}),
+  serverTimeKst: { date: formatKstDate(getKstNow()), time: formatKstTime(getKstNow()) },
+  ...(debugEnabled
+    ? { debug: { userAgent: req.headers['user-agent'] ?? '', kospi: kospiResult.debug, kosdaq: kosdaqResult.debug } }
+    : {}),
+});
   } catch (error) {
     res.status(500).json({
       error:
