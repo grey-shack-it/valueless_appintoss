@@ -4,6 +4,30 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const KIS_BASE_URL = 'https://openapi.koreainvestment.com:9443';
 
+const ALLOWED_ORIGINS = [
+  'https://*.tossapp.com',
+  'https://*.toss.im',
+  'https://*.vercel.app',
+];
+
+function setCorsHeaders(req: VercelRequest, res: VercelResponse) {
+  const origin = req.headers.origin;
+
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, X-Requested-With',
+  );
+  res.setHeader('Access-Control-Max-Age', '86400');
+}
+
 type MarketTab = 'KOSPI' | 'KOSDAQ';
 
 interface TradingData {
@@ -321,7 +345,10 @@ async function fetchMarketTradingData(
   const sameTime = await fetchYesterdaySameTimeAmount(tab);
   const closing = sameTime.amount === null ? await fetchYesterdayClosingAmount(tab) : null;
 
-  const yesterdayAmount = sameTime.amount ?? closing?.amount ?? index.amount;
+  const yesterdayAmount = sameTime.amount ?? closing?.amount;
+if (yesterdayAmount === null || yesterdayAmount === undefined) {
+  throw new Error(`${tab} 전일 거래대금 데이터를 가져올 수 없습니다.`);
+}
 
   return {
     data: {
@@ -338,6 +365,13 @@ async function fetchMarketTradingData(
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  setCorsHeaders(req, res);
+
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+
   res.setHeader(
     'Cache-Control',
     'no-store, no-cache, must-revalidate, proxy-revalidate',
