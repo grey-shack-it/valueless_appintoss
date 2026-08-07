@@ -251,7 +251,7 @@ async function fetchYesterdaySameTimeAmount(
     debug.msgCd = data.msg_cd;
     debug.msg1 = data.msg1;
     debug.output2Length = data.output2?.length ?? 0;
-    debug.output2Sample = data.output2?.slice(0, 3);
+    debug.output2Sample = data.output2;
 
     if (data.rt_cd !== '0' || !data.output2?.length) {
       return { amount: null, debug };
