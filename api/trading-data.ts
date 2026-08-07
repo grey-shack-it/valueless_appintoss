@@ -54,7 +54,62 @@ const INDEX_CODES: Record<MarketTab, string> = {
   KOSDAQ: '1001',
 };
 
+// 수정
 let cachedToken: { token: string; expiresAt: number } | null = null;
+let tokenRequestInFlight: Promise<string> | null = null;
+
+async function requestNewToken(): Promise<string> {
+  const appkey = process.env.KIS_APPKEY;
+  const appsecret = process.env.KIS_APPSECRET;
+
+  if (!appkey || !appsecret) {
+    throw new Error('KIS environment variables are missing');
+  }
+
+  const res = await fetch(`${KIS_BASE_URL}/oauth2/tokenP`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      grant_type: 'client_credentials',
+      appkey,
+      appsecret,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`KIS token request failed: ${res.status}`);
+  }
+
+  const data = (await res.json()) as {
+    access_token?: string;
+    expires_in?: number;
+  };
+
+  if (!data.access_token || !data.expires_in) {
+    throw new Error('KIS token response is invalid');
+  }
+
+  cachedToken = {
+    token: data.access_token,
+    expiresAt: Date.now() + (data.expires_in - 60) * 1000,
+  };
+
+  return data.access_token;
+}
+
+async function getAccessToken(): Promise<string> {
+  if (cachedToken && Date.now() < cachedToken.expiresAt) {
+    return cachedToken.token;
+  }
+
+  if (!tokenRequestInFlight) {
+    tokenRequestInFlight = requestNewToken().finally(() => {
+      tokenRequestInFlight = null;
+    });
+  }
+
+  return tokenRequestInFlight;
+}
 
 function getKstNow(): Date {
   return new Date(Date.now() + 9 * 60 * 60 * 1000);
@@ -142,49 +197,6 @@ function pickSameTimeYesterdayRow(
   }
 
   return selectedAmount === null ? null : { amount: selectedAmount };
-}
-
-async function getAccessToken(): Promise<string> {
-  if (cachedToken && Date.now() < cachedToken.expiresAt) {
-    return cachedToken.token;
-  }
-
-  const appkey = process.env.KIS_APPKEY;
-  const appsecret = process.env.KIS_APPSECRET;
-
-  if (!appkey || !appsecret) {
-    throw new Error('KIS environment variables are missing');
-  }
-
-  const res = await fetch(`${KIS_BASE_URL}/oauth2/tokenP`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      grant_type: 'client_credentials',
-      appkey,
-      appsecret,
-    }),
-  });
-
-  if (!res.ok) {
-    throw new Error(`KIS token request failed: ${res.status}`);
-  }
-
-  const data = (await res.json()) as {
-    access_token?: string;
-    expires_in?: number;
-  };
-
-  if (!data.access_token || !data.expires_in) {
-    throw new Error('KIS token response is invalid');
-  }
-
-  cachedToken = {
-    token: data.access_token,
-    expiresAt: Date.now() + (data.expires_in - 60) * 1000,
-  };
-
-  return data.access_token;
 }
 
 function kisHeaders(token: string, trId: string) {
