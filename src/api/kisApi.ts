@@ -25,18 +25,24 @@ export async function fetchMarketTradingData(tab: MarketTab): Promise<{
 }> {
   const API_BASE_URL = 'https://valueless-appintoss.vercel.app';
 
-  const res = await fetch(`${API_BASE_URL}/api/trading-data?ts=${Date.now()}`, {
-    method: 'GET',
-    cache: 'no-store',
-    headers: {
-      Accept: 'application/json',
-      'Cache-Control': 'no-cache',
-      Pragma: 'no-cache',
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}/api/trading-data?ts=${Date.now()}`, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        Accept: 'application/json',
+        'Cache-Control': 'no-cache',
+        Pragma: 'no-cache',
+      },
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    throw new Error(`[네트워크 실패] ${detail}`);
+  }
 
   if (!res.ok) {
-    throw new Error('거래대금 데이터를 불러오지 못했습니다.');
+    throw new Error(`[HTTP ${res.status}] 거래대금 데이터를 불러오지 못했습니다.`);
   }
 
   const data = (await res.json()) as TradingDataResponse;
