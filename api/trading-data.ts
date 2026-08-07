@@ -5,6 +5,44 @@ import { Redis } from '@upstash/redis';
 
 const redis = Redis.fromEnv();
 
+function toMinutesSinceMidnight(hms: string): number {
+  const hour = Number(hms.slice(0, 2));
+  const minute = Number(hms.slice(2, 4));
+  return hour * 60 + minute;
+}
+
+async function recordSnapshot(tab: MarketTab, dateStr: string, minutes: number, amount: number) {
+  const key = `snapshot:${tab}:${dateStr}`;
+  try {
+    await redis.zadd(key, { score: minutes, member: `${minutes}:${amount}` });
+    await redis.expire(key, 60 * 60 * 24 * 3); // 3일 뒤 자동 삭제
+  } catch {
+    // 스냅샷 저장 실패는 무시 — 오늘 응답 자체를 막으면 안 되니까
+  }
+}
+
+async function getSnapshotAtOrBefore(
+  tab: MarketTab,
+  dateStr: string,
+  minutes: number,
+): Promise<number | null> {
+  const key = `snapshot:${tab}:${dateStr}`;
+  try {
+    const results = await redis.zrange<string[]>(key, minutes, '-inf', {
+      byScore: true,
+      rev: true,
+      offset: 0,
+      count: 1,
+    });
+    if (!results.length) return null;
+    const [, amountStr] = results[0].split(':');
+    const amount = Number(amountStr);
+    return Number.isFinite(amount) ? amount : null;
+  } catch {
+    return null;
+  }
+}
+
 const KIS_BASE_URL = 'https://openapi.koreainvestment.com:9443';
 
 const ALLOWED_ORIGINS = [
@@ -287,7 +325,7 @@ async function fetchYesterdaySameTimeAmount(
     debug.msgCd = data.msg_cd;
     debug.msg1 = data.msg1;
     debug.output2Length = data.output2?.length ?? 0;
-    debug.output2Sample = data.output2;
+    debug.output2Sample = data.output2?.slice(0, 3);
 
     if (data.rt_cd !== '0' || !data.output2?.length) {
       return { amount: null, debug };
@@ -366,7 +404,7 @@ async function fetchYesterdayClosingAmount(
 
 async function fetchMarketTradingData(
   tab: MarketTab,
-): Promise<{ data: TradingData | null; debug: Record<string, DebugInfo>; error?: string }> {
+): Promise<{ data: TradingData | null; debug: Record<string, unknown>; error?: string }> {
   const index = await fetchIndexPrice(tab);
 
   if (index.amount === null) {
@@ -377,13 +415,46 @@ async function fetchMarketTradingData(
     };
   }
 
-  const sameTime = await fetchYesterdaySameTimeAmount(tab);
-  const closing = sameTime.amount === null ? await fetchYesterdayClosingAmount(tab) : null;
-  const yesterdayAmount = sameTime.amount ?? closing?.amount;
+  const now = getKstNow();
+  const todayStr = formatKstDate(now);
+  const yesterdayStr = getPreviousKstBusinessDateString();
+  const nowMinutes = toMinutesSinceMidnight(formatKstTime(now));
 
-  const debug = { index: index.debug, yesterdaySameTime: sameTime.debug, yesterdayClosing: closing?.debug ?? {} };
+  let yesterdayAmount: number | null = null;
+  let yesterdaySource: string | null = null;
 
-  if (yesterdayAmount === null || yesterdayAmount === undefined) {
+  // 1순위: 우리가 직접 쌓은 진짜 "어제 동시간" 스냅샷
+  yesterdayAmount = await getSnapshotAtOrBefore(tab, yesterdayStr, nowMinutes);
+  if (yesterdayAmount !== null) yesterdaySource = 'own-snapshot';
+
+  // 2순위: KIS 최근 50분 배열
+  let sameTimeDebug: unknown = null;
+  if (yesterdayAmount === null) {
+    const sameTime = await fetchYesterdaySameTimeAmount(tab);
+    sameTimeDebug = sameTime.debug;
+    if (sameTime.amount !== null) {
+      yesterdayAmount = sameTime.amount;
+      yesterdaySource = 'kis-array';
+    }
+  }
+
+  // 3순위: 어제 하루 총합 (최후 수단)
+  let closingDebug: unknown = null;
+  if (yesterdayAmount === null) {
+    const closing = await fetchYesterdayClosingAmount(tab);
+    closingDebug = closing.debug;
+    if (closing.amount !== null) {
+      yesterdayAmount = closing.amount;
+      yesterdaySource = 'kis-daily-total';
+    }
+  }
+
+  // 오늘 값은 항상 장부에 기록 (내일을 위해)
+  await recordSnapshot(tab, todayStr, nowMinutes, index.amount);
+
+  const debug = { index: index.debug, yesterdaySameTime: sameTimeDebug, yesterdayClosing: closingDebug, yesterdaySource };
+
+  if (yesterdayAmount === null) {
     return { data: null, debug, error: `${tab} 전일 거래대금 데이터를 가져올 수 없습니다.` };
   }
 
