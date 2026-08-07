@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { redis, getAccessToken, kisHeaders, KIS_BASE_URL, INDEX_CODES, MarketTab, parseKisAmountIn100Million, getKstNow, formatKstDate, toMinutesSinceMidnight } from './_lib/kis';
+import { redis, getAccessToken, kisHeaders, KIS_BASE_URL, INDEX_CODES, MarketTab, parseKisAmountIn100Million, getKstNow, formatKstDate, toMinutesSinceMidnight } from './_lib/kis.js';
 
 async function fetchIntradayBatch(tab: MarketTab, hourParam: string, todayStr: string) {
     const token = await getAccessToken();

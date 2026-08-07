@@ -12,7 +12,7 @@ import {
   getKstNow,
   formatKstDate,
   toMinutesSinceMidnight,
-} from './_lib/kis';
+} from './_lib/kis.js';
 
 async function getSnapshotAtOrBefore(
   tab: MarketTab,
