@@ -96,3 +96,57 @@ export function kisHeaders(token: string, trId: string) {
         'Content-Type': 'application/json; charset=utf-8',
     };
 }
+
+export interface DebugInfo {
+    requestParams?: Record<string, string>;
+    rtCd?: string;
+    msgCd?: string;
+    msg1?: string;
+    outputKeys?: string[];
+    outputSample?: unknown;
+    output2Length?: number;
+    output2Sample?: unknown;
+    selectedRawAmount?: string;
+    error?: string;
+}
+
+export async function fetchIndexPrice(
+    tab: MarketTab,
+): Promise<{ amount: number | null; debug: DebugInfo }> {
+    const debug: DebugInfo = {};
+    const token = await getAccessToken();
+    const params = new URLSearchParams({
+        FID_COND_MRKT_DIV_CODE: 'U',
+        FID_INPUT_ISCD: INDEX_CODES[tab],
+    });
+    debug.requestParams = Object.fromEntries(params.entries());
+
+    const res = await fetch(
+        `${KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-index-price?${params.toString()}`,
+        { headers: kisHeaders(token, 'FHPUP02100000'), cache: 'no-store' },
+    );
+
+    if (!res.ok) {
+        debug.error = `HTTP ${res.status}`;
+        return { amount: null, debug };
+    }
+
+    const data = (await res.json()) as {
+        rt_cd?: string; msg_cd?: string; msg1?: string;
+        output?: { acml_tr_pbmn?: string; bstp_nmix_prpr?: string };
+    };
+
+    debug.rtCd = data.rt_cd;
+    debug.msgCd = data.msg_cd;
+    debug.msg1 = data.msg1;
+    debug.outputKeys = data.output ? Object.keys(data.output) : [];
+    debug.outputSample = data.output;
+    debug.selectedRawAmount = data.output?.acml_tr_pbmn;
+
+    if (data.rt_cd !== '0') {
+        return { amount: null, debug };
+    }
+
+    const amount = parseKisAmountIn100Million(data.output?.acml_tr_pbmn);
+    return { amount, debug };
+}

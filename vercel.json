@@ -1,5 +1,2 @@
 {
-  "crons": [
-    { "path": "/api/snapshot-eod", "schedule": "35 6 * * 1-5" }
-  ]
 }
