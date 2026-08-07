@@ -30,7 +30,7 @@ async function fetchIntradayBatch(tab: MarketTab, hourParam: string, todayStr: s
 
 async function fetchFullDay(tab: MarketTab, todayStr: string): Promise<Map<number, number>> {
     const result = new Map<number, number>();
-    let cursor = '153000';
+    let cursor = '154000';
 
     for (let i = 0; i < 10; i++) {
         const batch = await fetchIntradayBatch(tab, cursor, todayStr);
