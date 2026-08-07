@@ -115,6 +115,35 @@ function pickLargestValidAmountRow<T extends { acml_tr_pbmn?: string }>(
   return selected;
 }
 
+function pickSameTimeYesterdayRow(
+  rows: Array<{ acml_tr_pbmn?: string; stck_bsop_date?: string; stck_cntg_hour?: string }> | undefined,
+  yesterday: string,
+  nowHms: string,
+): { amount: number } | null {
+  if (!rows?.length) return null;
+
+  let selectedAmount: number | null = null;
+  let selectedHms = '';
+
+  for (const row of rows) {
+    if (row.stck_bsop_date !== yesterday) continue;
+
+    const hms = row.stck_cntg_hour;
+    if (!hms) continue;
+    if (Number(hms) > 235959) continue;
+    if (hms > nowHms) continue;
+    if (hms <= selectedHms) continue;
+
+    const amount = parseKisAmountIn100Million(row.acml_tr_pbmn);
+    if (amount === null) continue;
+
+    selectedAmount = amount;
+    selectedHms = hms;
+  }
+
+  return selectedAmount === null ? null : { amount: selectedAmount };
+}
+
 async function getAccessToken(): Promise<string> {
   if (cachedToken && Date.now() < cachedToken.expiresAt) {
     return cachedToken.token;
@@ -257,8 +286,10 @@ async function fetchYesterdaySameTimeAmount(
       return { amount: null, debug };
     }
 
-    const selected = pickLargestValidAmountRow(data.output2);
-    debug.selectedRawAmount = selected?.row.acml_tr_pbmn;
+    const yesterday = getPreviousKstBusinessDateString();
+    const nowHms = formatKstTime(getKstNow());
+    const selected = pickSameTimeYesterdayRow(data.output2, yesterday, nowHms);
+    debug.selectedRawAmount = String(selected?.amount ?? '');
 
     return { amount: selected?.amount ?? null, debug };
   } catch (error) {
@@ -382,21 +413,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const [kospiResult, kosdaqResult] = await Promise.all([
-  fetchMarketTradingData('KOSPI'),
-  fetchMarketTradingData('KOSDAQ'),
-]);
+      fetchMarketTradingData('KOSPI'),
+      fetchMarketTradingData('KOSDAQ'),
+    ]);
 
-const anyError = kospiResult.error ?? kosdaqResult.error;
+    const anyError = kospiResult.error ?? kosdaqResult.error;
 
-res.status(anyError ? 500 : 200).json({
-  ...(kospiResult.data ? { kospi: kospiResult.data } : {}),
-  ...(kosdaqResult.data ? { kosdaq: kosdaqResult.data } : {}),
-  ...(anyError ? { error: anyError } : {}),
-  serverTimeKst: { date: formatKstDate(getKstNow()), time: formatKstTime(getKstNow()) },
-  ...(debugEnabled
-    ? { debug: { userAgent: req.headers['user-agent'] ?? '', kospi: kospiResult.debug, kosdaq: kosdaqResult.debug } }
-    : {}),
-});
+    res.status(anyError ? 500 : 200).json({
+      ...(kospiResult.data ? { kospi: kospiResult.data } : {}),
+      ...(kosdaqResult.data ? { kosdaq: kosdaqResult.data } : {}),
+      ...(anyError ? { error: anyError } : {}),
+      serverTimeKst: { date: formatKstDate(getKstNow()), time: formatKstTime(getKstNow()) },
+      ...(debugEnabled
+        ? { debug: { userAgent: req.headers['user-agent'] ?? '', kospi: kospiResult.debug, kosdaq: kosdaqResult.debug } }
+        : {}),
+    });
   } catch (error) {
     res.status(500).json({
       error:
@@ -405,10 +436,10 @@ res.status(anyError ? 500 : 200).json({
           : 'Failed to fetch market trading data',
       ...(debugEnabled
         ? {
-            debug: {
-              userAgent: req.headers['user-agent'] ?? '',
-            },
-          }
+          debug: {
+            userAgent: req.headers['user-agent'] ?? '',
+          },
+        }
         : {}),
     });
   }
