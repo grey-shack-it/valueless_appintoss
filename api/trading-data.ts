@@ -1,6 +1,9 @@
 /// <reference types="node" />
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { Redis } from '@upstash/redis';
+
+const redis = Redis.fromEnv();
 
 const KIS_BASE_URL = 'https://openapi.koreainvestment.com:9443';
 
@@ -55,7 +58,7 @@ const INDEX_CODES: Record<MarketTab, string> = {
 };
 
 // 수정
-let cachedToken: { token: string; expiresAt: number } | null = null;
+const TOKEN_REDIS_KEY = 'kis:access_token';
 let tokenRequestInFlight: Promise<string> | null = null;
 
 async function requestNewToken(): Promise<string> {
@@ -69,37 +72,29 @@ async function requestNewToken(): Promise<string> {
   const res = await fetch(`${KIS_BASE_URL}/oauth2/tokenP`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      grant_type: 'client_credentials',
-      appkey,
-      appsecret,
-    }),
+    body: JSON.stringify({ grant_type: 'client_credentials', appkey, appsecret }),
   });
 
   if (!res.ok) {
     throw new Error(`KIS token request failed: ${res.status}`);
   }
 
-  const data = (await res.json()) as {
-    access_token?: string;
-    expires_in?: number;
-  };
+  const data = (await res.json()) as { access_token?: string; expires_in?: number };
 
   if (!data.access_token || !data.expires_in) {
     throw new Error('KIS token response is invalid');
   }
 
-  cachedToken = {
-    token: data.access_token,
-    expiresAt: Date.now() + (data.expires_in - 60) * 1000,
-  };
+  const ttlSeconds = data.expires_in - 60;
+  await redis.set(TOKEN_REDIS_KEY, data.access_token, { ex: ttlSeconds });
 
   return data.access_token;
 }
 
 async function getAccessToken(): Promise<string> {
-  if (cachedToken && Date.now() < cachedToken.expiresAt) {
-    return cachedToken.token;
+  const cached = await redis.get<string>(TOKEN_REDIS_KEY);
+  if (cached) {
+    return cached;
   }
 
   if (!tokenRequestInFlight) {
