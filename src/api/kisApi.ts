@@ -32,8 +32,6 @@ export async function fetchMarketTradingData(tab: MarketTab): Promise<{
       cache: 'no-store',
       headers: {
         Accept: 'application/json',
-        'Cache-Control': 'no-cache',
-        Pragma: 'no-cache',
       },
     });
   } catch (err) {
