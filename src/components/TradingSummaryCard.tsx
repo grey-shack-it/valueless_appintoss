@@ -61,9 +61,9 @@ export function TradingSummaryCard({
         style={{
           textAlign: 'center',
           marginTop: 8,
-          fontSize: 11,
+          fontSize: 12,
           lineHeight: '14px',
-          color: '#B0B8C1',
+          color: '#8B95A1',
           whiteSpace: 'nowrap',
         }}
       >
