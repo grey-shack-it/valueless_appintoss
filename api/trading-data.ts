@@ -38,6 +38,27 @@ async function getSnapshotAtOrBefore(
   }
 }
 
+async function getRecentSnapshot(
+  tab: MarketTab,
+  nowMinutes: number,
+  maxDaysBack = 16,
+): Promise<{ amount: number | null; sourceDate: string | null }> {
+  const base = getKstNow();
+
+  for (let i = 1; i <= maxDaysBack; i++) {
+    const d = new Date(base);
+    d.setUTCDate(d.getUTCDate() - i);
+    const dateStr = formatKstDate(d);
+
+    const amount = await getSnapshotAtOrBefore(tab, dateStr, nowMinutes);
+    if (amount !== null) {
+      return { amount, sourceDate: dateStr };
+    }
+  }
+
+  return { amount: null, sourceDate: null };
+}
+
 const ALLOWED_ORIGINS = [
   'https://*.tossapp.com',
   'https://*.toss.im',
@@ -275,7 +296,8 @@ async function fetchMarketTradingData(
   let yesterdaySource: string | null = null;
 
   // 1순위: 우리가 직접 쌓은 진짜 "어제 동시간" 스냅샷
-  yesterdayAmount = await getSnapshotAtOrBefore(tab, yesterdayStr, nowMinutes);
+  const recent = await getRecentSnapshot(tab, nowMinutes);
+  yesterdayAmount = recent.amount;
   if (yesterdayAmount !== null) yesterdaySource = 'own-snapshot';
 
   // 2순위: KIS 최근 50분 배열
@@ -300,7 +322,7 @@ async function fetchMarketTradingData(
     }
   }
 
-  const debug = { index: index.debug, yesterdaySameTime: sameTimeDebug, yesterdayClosing: closingDebug, yesterdaySource };
+  const debug = { index: index.debug, yesterdaySameTime: sameTimeDebug, yesterdayClosing: closingDebug, yesterdaySource, yesterdaySnapshotDate: recent.sourceDate, };
 
   if (yesterdayAmount === null) {
     return { data: null, debug, error: `${tab} 전일 거래대금 데이터를 가져올 수 없습니다.` };

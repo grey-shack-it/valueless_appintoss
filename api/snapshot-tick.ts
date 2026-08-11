@@ -10,7 +10,7 @@ function formatKstTime(date: Date): string {
 async function recordSnapshot(tab: MarketTab, dateStr: string, minutes: number, amount: number) {
     const key = `snapshot:${tab}:${dateStr}`;
     await redis.zadd(key, { score: minutes, member: `${minutes}:${amount}` });
-    await redis.expire(key, 60 * 60 * 24 * 2); // 2일 뒤 자동 삭제
+    await redis.expire(key, 60 * 60 * 24 * 16); // 16일 뒤 자동 삭제
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
