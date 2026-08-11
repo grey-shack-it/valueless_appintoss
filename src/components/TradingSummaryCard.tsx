@@ -52,7 +52,9 @@ export function TradingSummaryCard({
         {(isFallback || isMarketClosed) && (
           <Paragraph typography="t7">
             <Paragraph.Text color="#8B95A1" style={{ padding: '8px 24px 16px' }}>
-              {isMarketClosed ? '...' : '...'}
+              {isMarketClosed
+                ? '장 마감 — 마지막 데이터를 표시합니다.'
+                : '실시간 연결 실패 — 캐시 데이터를 표시합니다.'}
             </Paragraph.Text>
           </Paragraph>
         )}
