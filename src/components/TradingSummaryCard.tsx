@@ -51,18 +51,23 @@ export function TradingSummaryCard({
         />
         {(isFallback || isMarketClosed) && (
           <Paragraph typography="t7">
-            <Paragraph.Text color="#8B95A1" style={{ padding: '8px 24px 0' }}>
-              {isMarketClosed
-                ? '장 마감 — 마지막 데이터를 표시합니다.'
-                : '실시간 연결 실패 — 캐시 데이터를 표시합니다.'}
+            <Paragraph.Text color="#8B95A1" style={{ padding: '8px 24px 16px' }}>
+              {isMarketClosed ? '...' : '...'}
             </Paragraph.Text>
           </Paragraph>
         )}
-        <Paragraph typography="t7">
-          <Paragraph.Text color="#878d94" style={{ padding: '8px 24px 16px' }}>
-            본 정보는 참고용이며, 투자 판단의 근거로 사용할 수 없습니다.
-          </Paragraph.Text>
-        </Paragraph>
+      </div>
+      <div
+        style={{
+          textAlign: 'center',
+          marginTop: 8,
+          fontSize: 11,
+          lineHeight: '14px',
+          color: '#B0B8C1',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        본 정보는 참고용이며, 투자 판단의 근거로 사용할 수 없습니다.
       </div>
     </div>
   );
