@@ -3,9 +3,9 @@ import { defineConfig } from '@apps-in-toss/web-framework/config';
 export default defineConfig({
   appName: 'valueless-bro',
   brand: {
-    displayName: '하찮은형의 국장은 지금',
+    displayName: '국장은 지금',
     primaryColor: '#3182F6',
-    icon: '',
+    icon: './src/assets/icon.png',
   },
   web: {
     host: 'localhost',
