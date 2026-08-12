@@ -5,7 +5,7 @@ export default defineConfig({
   brand: {
     displayName: '국장은 지금',
     primaryColor: '#3182F6',
-    icon: './src/assets/icon.png',
+    icon: './src/assets/valueless-bro-icon.png',
   },
   web: {
     host: 'localhost',
