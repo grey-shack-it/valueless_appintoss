@@ -5,7 +5,7 @@ export default defineConfig({
   brand: {
     displayName: '국장은 지금',
     primaryColor: '#3182F6',
-    icon: './src/assets/valueless-bro-icon.png',
+    icon: 'https://static.toss.im/appsintoss/50851/fe51f72f-b3d9-4221-8434-d1e4d36c2cc7.png',
   },
   web: {
     host: 'localhost',
