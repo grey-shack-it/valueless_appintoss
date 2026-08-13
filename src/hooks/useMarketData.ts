@@ -64,6 +64,8 @@ export function useMarketData(tab: MarketTab): UseMarketDataResult {
       saveMarketCache(tab, { ...marketData, cachedAt: marketData.fetchedAt });
       return marketData;
     } catch (err) {
+      console.error('market data fetch failed:', err);
+
       const cached = loadMarketCache(tab);
       if (cached) {
         const fallbackData = fromCache(cached);
@@ -71,9 +73,8 @@ export function useMarketData(tab: MarketTab): UseMarketDataResult {
         setError('실시간 데이터를 불러오지 못해 마지막 데이터를 표시합니다.');
         return fallbackData;
       }
-      setError(
-        err instanceof Error ? err.message : '데이터를 불러올 수 없습니다.',
-      );
+
+      setError('잠시 후 다시 시도해 주세요.');
       return null;
     } finally {
       setLoading(false);
