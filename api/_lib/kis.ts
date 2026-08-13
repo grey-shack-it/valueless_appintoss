@@ -81,7 +81,7 @@ export function parseKisAmountIn100Million(value: string | undefined): number | 
     const rawAmount = Number(value);
     const amountIn100Million = rawAmount / 100;
 
-    return Number.isFinite(amountIn100Million) && amountIn100Million > 0
+    return Number.isFinite(amountIn100Million) && amountIn100Million >= 0
         ? amountIn100Million
         : null;
 }
