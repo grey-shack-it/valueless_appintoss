@@ -31,19 +31,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const results: Array<{ tab: string; saved: boolean; amount: number | null }> = [];
 
-    if (kospi.amount !== null) {
+    if (kospi.amount !== null && kospi.amount > 0) {
         await recordSnapshot('KOSPI', todayStr, minutes, kospi.amount);
         results.push({ tab: 'KOSPI', saved: true, amount: kospi.amount });
     } else {
-        results.push({ tab: 'KOSPI', saved: false, amount: null });
+        results.push({ tab: 'KOSPI', saved: false, amount: kospi.amount });
     }
 
-    if (kosdaq.amount !== null) {
+    if (kosdaq.amount !== null && kosdaq.amount > 0) {
         await recordSnapshot('KOSDAQ', todayStr, minutes, kosdaq.amount);
         results.push({ tab: 'KOSDAQ', saved: true, amount: kosdaq.amount });
     } else {
-        results.push({ tab: 'KOSDAQ', saved: false, amount: null });
+        results.push({ tab: 'KOSDAQ', saved: false, amount: kosdaq.amount });
     }
-
     res.status(200).json({ date: todayStr, minutes, results });
 }
